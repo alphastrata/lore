@@ -93,5 +93,7 @@ The SIMD-shaped opportunity at the right grain is **batched**: one literal line 
 child name of a directory (the descend walk asks per child today), or all literal lines against
 one name, both amenable to a real `simd_eq` mask pass. AVX-512 host available via
 `ssh framebox` (cargo needs `source ~/.cargo/env` there); rsync a target-free tree and pull
-numbers back. Dep stays available in `[workspace.dependencies]` for that follow-up if/when it
+numbers back.  for that follow-up if/when it
 earns its place.
+
+(The revert took the dep back out of the tree; re-add it only when the batched kernel is being built.)
