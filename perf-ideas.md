@@ -256,3 +256,29 @@ storage layer, name lookups, sorts -- which moves "the walk's per-directory I/O"
 real target, in line with the dispatch-floor finding. The machinery is banked either way:
 with a long view list (real repositories hold whole .loreignore files in the shared run),
 the composed ask saves the full shared-run fold per node.
+
+## Final battery (perf/first-moves, this machine, run back-to-back)
+
+| bench | result |
+|---|---|
+| filter excludes / target / subtree | 1349 / 2263 / 5188 ns/call |
+| filter walk child-state fold | 1797 ns/step; `should_descend` 27 ns |
+| filter descend, 16 threads | 2.66 M nodes/s threaded vs 1.60 whole-path (1.67x) |
+| diff walk, unanchored case | 1.92 ms, 217 dirs, 2180 verdicts, 1 change |
+| file compare | 15.5 us (baseline 25.1) |
+| hash small store read | 18.9 us (baseline 32.1) |
+| resolved publish | 16.2 us (baseline 36.9) |
+
+Two leads surfaced by the battery, for the next session:
+
+1. **Walk decomposition is blocked here.** The unanchored case's remaining ~2 ms is
+   traversal-side (217 directory reads), and decomposing it needs `perf`, which this
+   machine lacks (`cargo-flamegraph` without a `perf` backend). First move: run
+   `just profile diff_walk` on a box with perf, and split per-directory store reads from
+   sorts and name lookups.
+2. **Descend threading scales at 1.4-1.7x across cores.** `descend_large_tree_in_parallel`
+   reports 2.66 M nodes/s on 16 threads against 1.60 on the whole path -- far from a
+   multiple of cores, which smells like shared-state contention in the filter/memo the
+   parallel walk threads share. Next move: check per-thread filter clones against the
+   shared memo's line-count revalidation, and measure with the dead-field control the
+   filter bench documents.
