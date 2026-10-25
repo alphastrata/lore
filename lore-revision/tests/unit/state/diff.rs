@@ -55,6 +55,7 @@ fn one_filter_answers_for_both_sides() {
         &filter,
         &path,
         DiffFlags::empty(),
+        &None,
         FilterMode::Full,
     );
 
@@ -74,7 +75,7 @@ fn two_filters_seed_each_side_from_its_own() {
     let path = stepped_path();
 
     let (from_states, to_states, excluded) =
-        seed_sides(&from, &to, &path, DiffFlags::TwoViews, FilterMode::Full);
+        seed_sides(&from, &to, &path, DiffFlags::TwoViews, &None, FilterMode::Full);
 
     assert_ne!(
         from_states, to_states,
@@ -133,10 +134,12 @@ fn a_paired_file_under_one_filter_costs_no_to_side_query() {
         to_subtree_verdict(
             &filter,
             FilterStates::ROOT,
+            FilterStates::ROOT,
             &path,
             true,
             true,
             flags,
+        None,
             FilterMode::Full,
             &stats,
         )
@@ -162,10 +165,12 @@ fn a_paired_directory_is_asked_under_one_filter_and_reports_nothing() {
     let (states, excluded) = to_subtree_verdict(
         &filter,
         FilterStates::ROOT,
+        FilterStates::ROOT,
         &path,
         false,
         false,
         DiffFlags::empty(),
+        None,
         FilterMode::Full,
         &stats,
     );
@@ -185,10 +190,12 @@ fn a_directory_re_including_below_itself_is_not_excluded() {
         to_subtree_verdict(
             filter,
             FilterStates::ROOT,
+            FilterStates::ROOT,
             &path,
             false,
             false,
             DiffFlags::TwoViews,
+        None,
             FilterMode::Full,
             &DiffWalkStats::default(),
         )
@@ -226,10 +233,12 @@ fn a_directory_only_rule_answers_the_two_questions_differently() {
         to_subtree_verdict(
             &filter,
             FilterStates::ROOT,
+            FilterStates::ROOT,
             &path,
             was_file,
             is_file,
             DiffFlags::TwoViews,
+        None,
             FilterMode::Full,
             &DiffWalkStats::default(),
         )
@@ -488,10 +497,10 @@ async fn a_walk_holds_each_subtree_once() {
             let flags = DiffFlags::empty();
             let mode = FilterMode::Full;
 
-            let directory = diff_subtree_node(subtree(), flags, &changes, mode, &mut work, &stats);
-            let pending = walk_pending_subtrees(&mut queue, flags, &changes, mode, &stats);
+            let directory = diff_subtree_node(subtree(), flags, None, &changes, mode, &mut work, &stats);
+            let pending = walk_pending_subtrees(&mut queue, flags, None, &changes, mode, &stats);
             let (directory, pending) = (size_of_val(&directory), size_of_val(&pending));
-            let walk = diff_subtree_walk(subtree(), flags, changes.clone(), mode, None);
+            let walk = diff_subtree_walk(subtree(), flags, None, changes.clone(), mode, None);
 
             assert!(
                 pending < directory + size_of::<PendingSubtree>(),

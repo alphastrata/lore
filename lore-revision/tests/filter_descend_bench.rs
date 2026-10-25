@@ -293,6 +293,7 @@ fn concurrent(
     units: &[(usize, String)],
     mode: FilterMode,
     threaded: bool,
+    fresh: bool,
 ) -> (WalkResult, std::time::Duration) {
     use std::sync::atomic::AtomicUsize;
     use std::sync::atomic::Ordering;
@@ -306,6 +307,9 @@ fn concurrent(
     std::thread::scope(|scope| {
         for _ in 0..threads {
             scope.spawn(|| {
+                // A fresh filter holds a private memo: the variant reads how much of the
+                // shared memo a multi-threaded walk pays for, and how much it wins.
+                let filter = if fresh { build() } else { std::clone::Clone::clone(&filter) };
                 let mut local = WalkResult {
                     files: 0,
                     queries: 0,
@@ -366,18 +370,26 @@ fn descend_large_tree_in_parallel() {
 
     for threads in [1usize, 4, 16, 32] {
         let (whole, whole_time) =
-            concurrent(threads, ROUNDS, &nodes, &units, FilterMode::Full, false);
+            concurrent(threads, ROUNDS, &nodes, &units, FilterMode::Full, false, false);
         let (threaded, threaded_time) =
-            concurrent(threads, ROUNDS, &nodes, &units, FilterMode::Full, true);
+            concurrent(threads, ROUNDS, &nodes, &units, FilterMode::Full, true, false);
+        let (fresh, _fresh_time) =
+            concurrent(threads, ROUNDS, &nodes, &units, FilterMode::Full, true, true);
         assert_eq!(
             whole, threaded,
             "the two strategies disagree about the tree"
         );
+        assert_eq!(
+            whole, fresh,
+            "a private memo answers differently than the shared one"
+        );
         let whole_rate = (whole.queries * ROUNDS) as f64 / whole_time.as_secs_f64() / 1e6;
         let threaded_rate = (threaded.queries * ROUNDS) as f64 / threaded_time.as_secs_f64() / 1e6;
+        let fresh_rate = (fresh.queries * ROUNDS) as f64 / _fresh_time.as_secs_f64() / 1e6;
         println!(
             "  {threads:>2} threads: whole path {whole_rate:>6.2} M nodes/s, \
-             threaded {threaded_rate:>6.2} M nodes/s, speedup {:.2}x",
+             threaded {threaded_rate:>6.2} M nodes/s, speedup {:.2}x, \
+             private memo {fresh_rate:>6.2} M nodes/s",
             threaded_rate / whole_rate
         );
     }
