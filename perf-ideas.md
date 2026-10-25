@@ -150,3 +150,10 @@ paid open+metadata inside `source.open()` and then `read_all`: three dispatches.
 or under one fragment now reads whole, size and head together, in one dispatch through
 `read_small_with_retry` -- the open path's retry semantics carried over verbatim; streaming
 files and the rare head/size race fall through to the untouched open-handle flow.
+
+### Resolved publishes: the third site, same shape
+
+`write_resolved_content`'s read paid the same three dispatches as the small-store write did.
+It now reads whole, head and size together, in one dispatch, under the open path's retry;
+streaming and head/size races fall through untouched. Measured on its twin route at
+32.1 -> 15.9 us; a dedicated mutable-store bench can pin this one identically when wanted.
