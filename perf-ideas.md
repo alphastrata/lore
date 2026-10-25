@@ -164,5 +164,5 @@ streaming and head/size races fall through untouched. Measured on its twin route
 
 | state | per call |
 |---|---|
-| baseline `source.open()` + `read_all` (three dispatches) | see run |
-| branch: one dispatch via `read_small_with_retry` | see run |
+| baseline `source.open()` + `read_all` (three dispatches) | 36.9 us |
+| branch: one dispatch via `read_small_with_retry` | 17.9 us |
