@@ -365,3 +365,23 @@ What survived the experiment:
   mid-depth folds shed most of the run. A bench built from a real 200-line .loreignore,
   folding deep paths, decides whether the gate returns.
 - The 1797 ns/step baseline stands as the per-node ceiling address for the descend trail.
+
+### The depth gate's final arbitration -- and the lever it exposed
+
+`real_filter_bench.rs` is now in the tree: an 85-line filter shaped like a long-lived game
+project's ignore list (engine trees, plugin intermediates, third-party bins, extension
+rules, two re-inclusions) folded over 600 deep paths, three times (cold fold, warm memo
+repeats, and a heavy sink). Baseline on the ungated build: 1.116 us whole-path, 1.061 us
+warm, sink 10000/30000. With the depth-min gate re-applied: 1.199/1.100 -- the gate LOSES
+on the fixture it was designed to win, sinks identical, suites green (799, 20).
+
+Why: deep paths fold ancestor by ancestor, and at deep depths every shallow-anchored rule
+is already eligible -- the min gate prunes only the shallow ancestor folds. The fixture
+exposes the inverse lever: **depth-MAX gating**. Anchored path rules carry a bounded
+`depth_max` ("`/*` compiles to `*` ... a rule unable to reach below a directory"); a rule
+with `depth_max < depth` cannot match there. Literal path rules are provable skips (a
+one-component glob cannot equal a k-component path string); unbounded rules (extensions,
+`**`) are exempt. Next session: verify the wildcard path-rule semantics (can `*` span
+components?), build the depth-max index with the same per-level snapshot shape, prove by
+the unit/exactness pair, and arbitrate on `real_filter_bench` -- where the anchored-rule
+majority should shed real mass at deep folds.
