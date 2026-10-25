@@ -1295,7 +1295,11 @@ impl FilterInstance {
     /// bound however shallow its own rule. This side is deliberately unbounded
     /// in depth: tightening it would prune walks that reach content today.
     fn settles_subtree(&self, state: FilterState, path: &str) -> bool {
-        state.excluded && !self.reinclude.below(path, state.decided_at, 0)
+        // The consult is reach-aware: a re-includer whose own depth bound ends at or
+        // above `path` cannot match below it either, so only entries reaching strictly
+        // deeper force the walk to descend. The floor stays the state's: a rule that
+        // already lost at the excluded ancestor cannot win below it.
+        state.excluded && !self.reinclude.below(path, state.decided_at, query_depth(path))
     }
 
     /// Whether `state` includes `path` and no rule can exclude anything below
