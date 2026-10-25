@@ -597,3 +597,78 @@ fn folding_a_suffix_composes_to_the_whole_lists_answer() {
         "a path the whole fold declines declines in composition too"
     );
 }
+
+/// The descend half of the walk's pairing: a state folded through a suffix, consulted
+/// against the extending filter's own reinclude indexes, decides exactly what a state
+/// folded through the whole list decides. The cases reach a re-inclusion in the shared
+/// run (which the composition never re-folds) and one in the extension, an excluded
+/// directory with nothing re-includable below, and a directory the filter holds open.
+#[test]
+fn descend_over_a_suffix_uses_the_whole_lists_reinclude_index() {
+    let mut base = Filter::default();
+    base.view.add_exclusion("/tree/nested").expect("shared exclusion");
+    // A re-inclusion in the shared run: the composed path never folds it, so the state
+    // it left must still be consulted by the index, not skipped.
+    base.view
+        .add_exclusion("!/tree/nested/keep/late")
+        .expect("shared re-inclusion");
+    let base_len = base.view.lines.len();
+
+    let mut whole = Filter::default();
+    whole.view = base.view.clone();
+    // An extension that re-includes one name under the shared exclusion and excludes a
+    // deeper one.
+    whole
+        .view
+        .add_exclusion("!/tree/nested/keep")
+        .expect("extension re-inclusion");
+    whole.view.add_exclusion("/tree/nested/deep").expect("extension exclusion");
+    let suffix = whole.view.lines[base_len..].to_vec();
+    let whole = Arc::new(whole);
+    let base = Arc::new(base);
+
+    for (path, is_directory) in [
+        ("/tree/nested", true),
+        ("/tree/nested/keep", true),
+        ("/tree/nested/keep/late", true),
+        ("/tree/nested/deep", true),
+        ("/tree/nested/other", true),
+        ("/other", true),
+    ] {
+        let path = RelativePath::new_from_initial_path(path).expect("valid path");
+
+        let whole_states = whole
+            .view
+            .child_exclusion_state(FilterState::ROOT, &path, is_directory);
+        let base_state = base.view.child_exclusion_state(FilterState::ROOT, &path, is_directory);
+        let composed = base
+            .view
+            .child_state_by_suffix(base_state, base_len, &suffix, &path, is_directory);
+
+        assert_eq!(
+            whole_states, composed,
+            "the composed fold answers the fold for {path}"
+        );
+
+        let whole_verdict = whole.should_descend(
+            FilterStates {
+                ignore: FilterStates::ROOT.ignore,
+                view: whole_states,
+            },
+            &path,
+            FilterMode::View,
+        );
+        let composed_verdict = whole.should_descend(
+            FilterStates {
+                ignore: FilterStates::ROOT.ignore,
+                view: composed,
+            },
+            &path,
+            FilterMode::View,
+        );
+        assert_eq!(
+            whole_verdict, composed_verdict,
+            "descend over the composed state decides from the whole list for {path}"
+        );
+    }
+}
