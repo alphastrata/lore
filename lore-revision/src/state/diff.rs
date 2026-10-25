@@ -18,6 +18,7 @@ use crate::MAX_CONCURRENT_TREE_TASKS;
 use crate::change;
 use crate::change::NodeChangeState;
 use crate::filter::Filter;
+use crate::filter::FilterLine;
 use crate::filter::FilterMode;
 use crate::filter::FilterStates;
 use crate::filter::query_depth;
@@ -119,6 +120,19 @@ impl GraftOracle {
             .await
             .is_ok_and(|has_staged| !has_staged)
     }
+}
+
+/// The view lines by which the walk's to side extends its from side, read once at the
+/// seeding where both filters are in hand, so the pairing can answer the to side by
+/// folding the extension alone over the state the from side reached the path with. The
+/// ignore lists match wherever this pairs (the [`Filter::view_suffix`] rule), so both
+/// sides fold the identical ignore list, and a rename keeps the sides' paths apart, so a
+/// rename walks the old way.
+#[lore_macro::test_pub]
+struct ViewSuffix {
+    /// Lines both filters hold before the extension.
+    base: u32,
+    lines: Vec<FilterLine>,
 }
 
 bitflags! {
@@ -226,8 +240,18 @@ pub fn diff_subtree(
     let from_filter = &from.mapping.repository.filter;
     let to_filter = &to.mapping.repository.filter;
     let flags = DiffFlags::between(from_filter, to_filter);
+    let view_suffix = if flags.contains(DiffFlags::TwoViews) {
+        to_filter.view_suffix(from_filter).map(|suffix| {
+            Arc::new(ViewSuffix {
+                base: (to_filter.view.lines.len() - suffix.len()) as u32,
+                lines: suffix.to_vec(),
+            })
+        })
+    } else {
+        None
+    };
     let (from_states, to_states, excluded) =
-        seed_sides(from_filter, to_filter, &path, flags, filter_mode);
+        seed_sides(from_filter, to_filter, &path, flags, &view_suffix, filter_mode);
     if excluded {
         lore_debug!("Excluded by filter: {}", path.as_str());
         return Either::Left(std::future::ready(Ok(DiffWalkStats::default())));
@@ -252,6 +276,7 @@ pub fn diff_subtree(
             graft,
         },
         flags,
+        view_suffix,
         changes.clone(),
         filter_mode,
         None,
@@ -274,6 +299,7 @@ fn seed_sides(
     to_filter: &Arc<Filter>,
     path: &RelativePath,
     flags: DiffFlags,
+    _view_suffix: &Option<Arc<ViewSuffix>>,
     mode: FilterMode,
 ) -> (FilterStates, FilterStates, bool) {
     let two_views = flags.contains(DiffFlags::TwoViews);
@@ -363,6 +389,7 @@ fn dispatch_subtree_diff(
     to: NodeChangeState,
     cursor: DiffCursor,
     flags: DiffFlags,
+    view_suffix: Option<Arc<ViewSuffix>>,
     graft: Option<Arc<GraftOracle>>,
     context: DiffContext<'_>,
     work: &mut SubtreeWork,
@@ -384,7 +411,7 @@ fn dispatch_subtree_diff(
         Ok(permit) => {
             lore_spawn!(
                 tasks,
-                diff_subtree_walk(subtree, flags, changes.clone(), filter_mode, Some(permit))
+                diff_subtree_walk(subtree, flags, view_suffix, changes.clone(), filter_mode, Some(permit))
             );
         }
         Err(_) => pending.push(subtree),
@@ -410,6 +437,7 @@ fn dispatch_subtree_diff(
 fn diff_subtree_walk(
     first: PendingSubtree,
     flags: DiffFlags,
+    view_suffix: Option<Arc<ViewSuffix>>,
     changes: ChangeSender,
     filter_mode: FilterMode,
     permit: Option<OwnedSemaphorePermit>,
@@ -425,7 +453,7 @@ fn diff_subtree_walk(
         // drain below — otherwise the JoinSet drops with subtree-diff
         // tasks still running, leaking the Arc<RepositoryContext> clones.
         let work_result =
-            walk_pending_subtrees(&mut work, flags, &changes, filter_mode, &stats).await;
+            walk_pending_subtrees(&mut work, flags, view_suffix, &changes, filter_mode, &stats).await;
         let drain_result = lore_drain_tasks!(work.tasks, StateError::internal("Task failure"));
         drop(permit);
         work_result?;
@@ -443,6 +471,7 @@ fn diff_subtree_walk(
 async fn walk_pending_subtrees(
     work: &mut SubtreeWork,
     flags: DiffFlags,
+    view_suffix: Option<Arc<ViewSuffix>>,
     changes: &ChangeSender,
     filter_mode: FilterMode,
     stats: &DiffWalkStats,
@@ -451,7 +480,7 @@ async fn walk_pending_subtrees(
         let Some(subtree) = work.pending.pop() else {
             break;
         };
-        diff_subtree_node(subtree, flags, changes, filter_mode, work, stats).await?;
+        diff_subtree_node(subtree, flags, view_suffix.clone(), changes, filter_mode, work, stats).await?;
     }
     while let Some(joined) = work.tasks.join_next().await {
         merge_subtree_task(joined, stats)?;
@@ -537,6 +566,7 @@ impl DiffCursor {
 fn diff_subtree_node(
     subtree: PendingSubtree,
     flags: DiffFlags,
+    view_suffix: Option<Arc<ViewSuffix>>,
     changes: &ChangeSender,
     filter_mode: FilterMode,
     work: &mut SubtreeWork,
@@ -563,6 +593,7 @@ fn diff_subtree_node(
             &cursor.paths,
             cursor.states,
             flags,
+            view_suffix.clone(),
             graft,
             changes,
             filter_mode,
@@ -591,6 +622,7 @@ fn diff_subtree_node_walk(
     paths: &DiffPaths,
     states: DiffStates,
     flags: DiffFlags,
+    view_suffix: Option<Arc<ViewSuffix>>,
     graft: Option<Arc<GraftOracle>>,
     changes: &ChangeSender,
     filter_mode: FilterMode,
@@ -649,6 +681,7 @@ fn diff_subtree_node_walk(
                 add_change_for_paired_nodes(
                     work,
                     flags,
+                    view_suffix.clone(),
                     graft.clone(),
                     context,
                     to_named_node,
@@ -894,10 +927,12 @@ fn subtree_states(
 fn to_subtree_verdict(
     filter: &Filter,
     parent: FilterStates,
+    shared: FilterStates,
     path: &RelativePath,
     was_file: bool,
     is_file: bool,
     flags: DiffFlags,
+    view_suffix: Option<Arc<ViewSuffix>>,
     mode: FilterMode,
     stats: &DiffWalkStats,
 ) -> (FilterStates, bool) {
@@ -905,6 +940,16 @@ fn to_subtree_verdict(
     let paired_directory = !was_file && !is_file;
     if !paired_directory && !two_views {
         return (parent, false);
+    }
+    if let Some(suffix) = view_suffix.as_ref().filter(|_| two_views) {
+        return filter.child_excludes_tree_by_suffix(
+            shared,
+            suffix.base,
+            &suffix.lines,
+            path,
+            !is_file,
+            mode,
+        );
     }
     stats.queried();
     let (states, excluded) = filter.child_excludes_tree(parent, path, !is_file, mode);
@@ -953,6 +998,7 @@ fn views_diverge_below(
 async fn add_change_for_paired_nodes(
     work: &mut SubtreeWork,
     flags: DiffFlags,
+    view_suffix: Option<Arc<ViewSuffix>>,
     graft: Option<Arc<GraftOracle>>,
     context: DiffContext<'_>,
     to_named_node: &StateNamedNode,
@@ -1079,10 +1125,19 @@ async fn add_change_for_paired_nodes(
         let (to_subtree_states, to_excludes_subtree) = to_subtree_verdict(
             &to_nodes.repository.filter,
             states.to,
+            from_node_states,
             &subpath,
             from_type == LoreNodeType::File,
             to_type == LoreNodeType::File,
             flags,
+            if !is_rename
+                && states.from.ignore == states.to.ignore
+                && states.from.view == states.to.view
+            {
+                view_suffix.clone()
+            } else {
+                None
+            },
             filter_mode,
             stats,
         );
@@ -1229,6 +1284,7 @@ async fn add_change_for_paired_nodes(
                                 states: child_states,
                             },
                             flags,
+                            view_suffix.clone(),
                             // A linked repository merges through its own link.
                             None,
                             context,
@@ -1275,6 +1331,7 @@ async fn add_change_for_paired_nodes(
                                 states: child_states,
                             },
                             flags,
+                            view_suffix.clone(),
                             graft,
                             context,
                             work,
