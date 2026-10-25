@@ -61,7 +61,6 @@ lore-transport = { workspace = true }
 uuid = { workspace = true, features = ["zerocopy"] }
 xxhash-rust = { workspace = true }
 zerocopy = { workspace = true }
-fearless_simd = { workspace = true }
 
 [target.'cfg(target_family = "windows")'.dependencies]
 # `Win32_Storage_FileSystem` does not imply `Win32_Foundation`, and instance

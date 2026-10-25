@@ -402,57 +402,6 @@ fn is_literal(glob: &str) -> bool {
     !glob.contains(['*', '?', '[', ']', '\\'])
 }
 
-/// The SIMD engine the literal compare runs on, built once per process.
-fn simd_level() -> fearless_simd::Level {
-    static LEVEL: std::sync::OnceLock<fearless_simd::Level> = std::sync::OnceLock::new();
-    *LEVEL.get_or_init(fearless_simd::Level::new)
-}
-
-/// Whether two equal-length byte slices hold the same bytes, one 16-lane vector at a time.
-///
-/// Equal lanes subtract to zero under both wrapping and clamping subtraction, so the
-/// difference vector holds zero exactly where the lanes were equal, and its bytes are
-/// reduced on the stack rather than through a mask.
-fn lanes_equal<S: fearless_simd::Simd>(simd: S, a: &[u8], b: &[u8]) -> bool {
-    use fearless_simd::prelude::*;
-    debug_assert_eq!(a.len(), b.len());
-    debug_assert_eq!(a.len() % 16, 0);
-    for (a, b) in a.chunks_exact(16).zip(b.chunks_exact(16)) {
-        let left: [u8; 16] = a.try_into().expect("16 lane chunk");
-        let right: [u8; 16] = b.try_into().expect("16 lane chunk");
-        let left: fearless_simd::u8x16<S> = left.simd_into(simd);
-        let right: fearless_simd::u8x16<S> = right.simd_into(simd);
-        let difference: [u8; 16] = (left - right).into();
-        for byte in difference {
-            if byte != 0 {
-                return false;
-            }
-        }
-    }
-    true
-}
-
-/// Whether a literal line's glob is the text to match.
-///
-/// A literal is most of what a real filter holds, and the compare runs for every line on
-/// every path a walk visits. Equal lengths up to two vectors are compared lane-wise through
-/// the engine [`simd_level`] built, which keeps the compare inline and out of the memcmp
-/// call; anything longer is what `==` already is.
-fn literal_eq(a: &str, b: &str) -> bool {
-    let (a, b) = (a.as_bytes(), b.as_bytes());
-    if a.len() != b.len() {
-        return false;
-    }
-    if a.len() <= 32 {
-        fearless_simd::dispatch!(simd_level(), simd => {
-            let whole = a.len() - a.len() % 16;
-            lanes_equal(simd, &a[..whole], &b[..whole]) && a[whole..] == b[whole..]
-        })
-    } else {
-        a == b
-    }
-}
-
 /// Whether a single path component holds a glob metacharacter, so no literal
 /// text can stand in for it.
 ///
@@ -1124,7 +1073,7 @@ impl FilterInstance {
                 match_path
             };
             let hit = if line.literal {
-                literal_eq(line.glob.as_str(), to_match)
+                line.glob == to_match
             } else {
                 glob_match::glob_match(line.glob.as_str(), to_match)
             };

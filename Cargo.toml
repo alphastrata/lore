@@ -98,7 +98,6 @@ verbose_file_reads = "warn"
 zero_sized_map_values = "warn"
 
 [workspace.dependencies]
-fearless_simd = "1.1.0"
 lore = { path = "lore" }
 lore-aws = { path = "lore-aws" }
 lore-base = { path = "lore-base" }
