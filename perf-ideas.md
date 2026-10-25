@@ -282,3 +282,22 @@ Two leads surfaced by the battery, for the next session:
    parallel walk threads share. Next move: check per-thread filter clones against the
    shared memo's line-count revalidation, and measure with the dead-field control the
    filter bench documents.
+
+### Descend scaling: the memo-contention theory is falsified
+
+A private-memo probe was added to `descend_large_tree_in_parallel` (each thread builds its
+own filter, so no state is shared) and asserted to answer identically. It does -- and:
+
+| threads | shared memo | private memo |
+|---|---|---|
+| 1 | 0.38 M nodes/s | 0.41 |
+| 4 | 1.41 | 1.39 |
+| 16 | 2.72 | 1.88 |
+| 32 | 2.30 | 2.44 |
+
+Private memos do NOT outscale the shared memo -- the 1.4-1.7x wall is not memo contention
+(16 threads on private is slower than shared). What the numbers do show: 32 threads degrade
+below 16, and the work is only ~102 units of granularity, consumed by an atomic counter.
+Next suspects: unit granularity (fewer, larger units or work-stealing), the node-structure
+read pattern, and hyperthread behaviour at 32. The probe stays in the bench for whoever
+takes that up.
