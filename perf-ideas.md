@@ -71,3 +71,27 @@ Baseline (this machine, 2026-10-25, release):
    phase 1.
 6. Housekeeping: retire the SDK-gated Oodle bench from the public bench story or move it
    behind an explicit `contrib` fixture.
+
+## fearless_simd experiment (measured, reverted)
+
+Wired `fearless_simd` 1.1.0 behind the literal-glob compare (`filter.rs`, commit 914d2b50,
+reverted 914d2b50's revert): per-call `dispatch!` + `simd_into`/`into` round-trips on <=32-byte
+strings. AVX-2 host, filter_bench (post-change vs. baseline):
+
+| metric | baseline | with kernel |
+|---|---|---|
+| excludes | 1126 ns/call | 1300 ns/call |
+| excludes/target | 2124 | 2260 |
+| excludes_subtree | 4717 | 5152 |
+| build (100 rules) | 45.7 us | 43.4 us (noise) |
+
+The loss is per-op overhead (dispatch + array<->lane round-trips + panic-able try_into), not
+lane-width: short-string equality is already one memcmp with no call-frame for short inputs.
+**Conclusion: per-op vectorization of the literal compare is the wrong grain.**
+
+The SIMD-shaped opportunity at the right grain is **batched**: one literal line against every
+child name of a directory (the descend walk asks per child today), or all literal lines against
+one name, both amenable to a real `simd_eq` mask pass. AVX-512 host available via
+`ssh framebox` (cargo needs `source ~/.cargo/env` there); rsync a target-free tree and pull
+numbers back. Dep stays available in `[workspace.dependencies]` for that follow-up if/when it
+earns its place.
