@@ -408,3 +408,18 @@ The `literal` flag carries the whole proof; the open question that remains is th
 other slot -- if profiling later shows the descend half of the reach trail still
 bound, the same reach argument may extend to `descend_reason`'s subtree settles (a
 rule's own reach bounds where it can settle a subtree at all).
+
+## The reach argument's second landing: the settle consult
+
+The walk descended into excluded directories whenever ANY re-includer lived in the index --
+`settles_subtree` passed depth 0 to a consult whose contract ("entry must reach strictly
+deeper than the given depth") was already reach-aware: an entry whose own `depth_max` ends
+at or above the directory cannot match below it either. The consult now takes the path's
+own depth, so deep excluded subtrees with shallow-bound re-includers settle instead of
+forcing the walk down. One line; `filter_gitignore`'s departure semantics, the fold
+exactness suites, and `covers_subtree`'s dual all hold (799 + 20 + 19).
+
+Scope note: the win shows in walks over re-inclusion-bearing filters -- the diff_walk bench
+carries no re-inclusions, so its counts are unchanged by construction. Quantifying it
+needs a walk bench over the real_filter fixture's kind of view; the settle consult itself
+is the walk-level lever the suffix pairing and the reach gates pointed at.
