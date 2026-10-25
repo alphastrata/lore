@@ -52,6 +52,15 @@ pub struct FilterInstance {
     /// an included directory holds anything this filter could exclude. See
     /// [`covers_subtree`](Self::covers_subtree).
     exclude: RuleIndex,
+    /// Fold eligibility by depth for rules that cannot reach deep: `reach_gates[level]`
+    /// holds the ascending indices of every line whose fold runs at that depth -- literal
+    /// path rules stay only while `depth_max >= level`, unbounded lines (name rules,
+    /// wildcards, globstars) stay at every level. Maintained by the `add_*` mutators; a
+    /// caller pushing through the public `lines` field leaves it stale, and a stale gate
+    /// folds the old way.
+    reach_gates: Vec<Vec<u32>>,
+    /// The line count the gates were built for.
+    gates_for: usize,
 }
 
 /// One glob and the two facts about the authored rule that the glob text cannot
@@ -943,6 +952,7 @@ impl FilterInstance {
             min_depth,
             literal,
         });
+        self.rebuild_reach_gates();
         Ok(())
     }
 
@@ -1012,6 +1022,7 @@ impl FilterInstance {
             });
         }
 
+        self.rebuild_reach_gates();
         Ok(())
     }
 
@@ -1047,6 +1058,52 @@ impl FilterInstance {
         } else {
             0
         };
+        if (depth as usize) < REACH_GATE_LEVELS
+            && self.gates_for == self.lines.len()
+            && !self.reach_gates.is_empty()
+        {
+            let gates = &self.reach_gates[depth as usize];
+            // Engaged where the level sheds at least a fifth of the run: a filter of
+            // shallow-reaching rules keeps every line reachable everywhere, and stepping
+            // the same run through an indirection buys nothing.
+            if gates.len() * 5 <= self.lines.len() * 4 {
+                let pruned = parent.excluded;
+                let mut state = parent;
+                let start = gates.partition_point(|&idx| (idx as usize) < floor);
+                for &idx in &gates[start..] {
+                    let line = &self.lines[idx as usize];
+                    if line.negated != state.excluded {
+                        continue;
+                    }
+                    if line.directory && !is_directory {
+                        continue;
+                    }
+                    if pruned && line.negated && line.filename {
+                        continue;
+                    }
+                    if line.min_depth > depth {
+                        continue;
+                    }
+                    let to_match = if line.filename {
+                        match_name
+                    } else {
+                        match_path
+                    };
+                    let hit = if line.literal {
+                        line.glob == to_match
+                    } else {
+                        glob_match::glob_match(line.glob.as_str(), to_match)
+                    };
+                    if hit {
+                        state = FilterState {
+                            excluded: !line.negated,
+                            decided_at: idx,
+                        };
+                    }
+                }
+                return state;
+            }
+        }
         self.step_lines(parent, &self.lines, 0, floor, match_path, match_name, is_directory, depth)
     }
 
@@ -1904,5 +1961,39 @@ impl Filter {
         // ends: an equal filter shares all of it and extends with nothing.
         let shared = &self.view.lines[..prefix.view.lines.len()];
         (shared == prefix.view.lines).then_some(&self.view.lines[prefix.view.lines.len()..])
+    }
+}
+
+const REACH_GATE_LEVELS: usize = 32;
+
+impl FilterInstance {
+    /// Rebuilds the reach gates: every line the fold runs is carried at every level until
+    /// its own reach runs out -- literal path rules drop out once the fold's depth passes
+    /// their [`depth_range`] bound, because a k-component literal cannot equal a deeper
+    /// path, and everything unbounded (name rules, wildcards, globstars) is carried to
+    /// the last level. Each level is a snapshot, so a level's list is what the fold at
+    /// that depth runs, ascending in line order.
+    fn rebuild_reach_gates(&mut self) {
+        let mut reaches: Vec<u32> = self
+            .lines
+            .iter()
+            .map(|line| {
+                if !line.filename && line.literal {
+                    Self::depth_range(&line.glob, false).1
+                } else {
+                    u32::MAX
+                }
+            })
+            .collect();
+        let mut carried: Vec<u32> = (0..self.lines.len() as u32).collect();
+        let mut gates = Vec::with_capacity(REACH_GATE_LEVELS);
+        gates.push(carried.clone());
+        for level in 1..REACH_GATE_LEVELS {
+            let level = level as u32;
+            carried.retain(|&idx| reaches[idx as usize] >= level);
+            gates.push(carried.clone());
+        }
+        self.reach_gates = gates;
+        self.gates_for = self.lines.len();
     }
 }
