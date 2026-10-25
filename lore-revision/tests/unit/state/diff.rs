@@ -672,3 +672,55 @@ fn descend_over_a_suffix_uses_the_whole_lists_reinclude_index() {
         );
     }
 }
+
+/// The walk-level API answers the whole-list walk API's question wherever the sides pair
+/// by suffix -- states, subtree verdicts, and directories the reinclude index holds open.
+#[test]
+fn the_walk_api_answers_through_a_suffix() {
+    let mut base = Filter::default();
+    base.view.add_exclusion("/tree/nested").expect("shared exclusion");
+    base.view
+        .add_exclusion("!/tree/nested/keep/late")
+        .expect("shared re-inclusion");
+    let base_len = base.view.lines.len();
+
+    let mut whole = Filter::default();
+    whole.view = base.view.clone();
+    whole
+        .view
+        .add_exclusion("!/tree/nested/keep")
+        .expect("extension re-inclusion");
+    whole.view.add_exclusion("/tree/nested/deep").expect("extension exclusion");
+    let suffix = whole.view.lines[base_len..].to_vec();
+    let whole = Arc::new(whole);
+    let base = Arc::new(base);
+
+    for (path, is_directory) in [
+        ("/tree/nested", true),
+        ("/tree/nested/keep", true),
+        ("/tree/nested/keep/late", true),
+        ("/tree/nested/keep/late/file", false),
+        ("/tree/nested/deep", true),
+        ("/tree/nested/other", true),
+        ("/other", true),
+        ("/other/file", false),
+    ] {
+        let path = RelativePath::new_from_initial_path(path).expect("valid path");
+
+        // The shared state is the one the from side reached this path with: the suffix
+        // continues the fold past the shared run where the walk already folded it.
+        let shared = base
+            .child_excludes_tree(FilterStates::ROOT, &path, is_directory, FilterMode::Full)
+            .0;
+        let whole_walk = whole.child_excludes_tree(FilterStates::ROOT, &path, is_directory, FilterMode::Full);
+        let suffix_walk = whole.child_excludes_tree_by_suffix(
+            shared,
+            base_len as u32,
+            &suffix,
+            &path,
+            is_directory,
+            FilterMode::Full,
+        );
+        assert_eq!(whole_walk, suffix_walk, "the walk API pairs for {path}");
+    }
+}

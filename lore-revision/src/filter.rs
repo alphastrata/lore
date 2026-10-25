@@ -1498,6 +1498,56 @@ impl Filter {
         (states, reason)
     }
 
+    /// [`child_excludes_tree`](Self::child_excludes_tree) for a walk pairing two filters
+    /// whose view lists extend one another: the view slot folds only `suffix`, which sits
+    /// `base` lines deep in this filter's list, over the state the from side reached the
+    /// path with -- the fold of the shared run the walk already paid for. The ignore lists match wherever the sides pair by suffix -- the rule
+    /// [`Filter::view_suffix`] guards -- so the ignore slot folds whole, exactly as each
+    /// side folds it today.
+    ///
+    /// Everything else is [`child_excludes_tree`](Self::child_excludes_tree) verbatim: the
+    /// same reason order, and for a directory the same descent decision, which the
+    /// absolute `decided_at` a suffix fold reports lets this filter's own reinclude index
+    /// answer wherever the whole-list fold's state would have.
+    #[lore_macro::test_pub]
+    pub fn child_excludes_tree_by_suffix(
+        &self,
+        shared: FilterStates,
+        base: u32,
+        suffix: &[FilterLine],
+        path: &impl FilterPath,
+        is_directory: bool,
+        mode: FilterMode,
+    ) -> (FilterStates, bool) {
+        let mut states = shared;
+        let mut reason = None;
+        if mode.contains(FilterMode::Ignore) {
+            states.ignore = self
+                .ignore
+                .child_exclusion_state(shared.ignore, path, is_directory);
+            if states.ignore.excluded {
+                reason = Some(FilterReason::Ignore);
+            }
+        }
+        if mode.contains(FilterMode::View) {
+            states.view = self.view.child_state_by_suffix(
+                shared.view,
+                base as usize,
+                suffix,
+                path,
+                is_directory,
+            );
+            if reason.is_none() && states.view.excluded {
+                reason = Some(FilterReason::View);
+            }
+        }
+        if !is_directory {
+            return (states, reason.is_some());
+        }
+        let reason = self.descend_reason(states, path, mode);
+        (states, reason.is_some())
+    }
+
     /// [`excludes_tree`](Self::excludes_tree) for a walk that threads state:
     /// whether the walk drops `path`, and the states its children inherit.
     pub fn child_excludes_tree(
