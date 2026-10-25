@@ -1807,6 +1807,9 @@ pub enum FileMatch {
 /// address it names, reading nothing. Metadata fetched from the remote is checked on receipt
 /// unless the reader trusts the remote (`trust_remote`).
 #[allow(clippy::too_many_arguments)]
+const FILE_MATCHES_HEAD: usize = crate::concurrency::FRAGMENT_SIZE_MINIMUM;
+
+#[allow(clippy::too_many_arguments)]
 pub async fn file_matches(
     store: Arc<dyn ImmutableStore>,
     partition: Partition,

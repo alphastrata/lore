@@ -116,3 +116,16 @@ inside it; (2) the per-file compare costs ~25 us where the I/O work is worth ~2,
 levers are fewer dispatches per file (composite open+read+close operations, batching, the
 LEP's I/O engine) -- which moves "phase 2 I/O engine" up the list on measured, not asserted,
 grounds.
+
+## One-dispatch compare: the first kept perf gain
+
+`ContentSource::size_and_head` (committed): the compare's routing size and the head that
+answers it at or under the minimum cut travel in ONE dispatch via the driver's existing
+`open_read_head` composite (open, stat, read), replacing the two the compare paid before
+(`metadata`, then `read_file_bytes`). file_matches' whole-content route hashes the head
+directly; anything larger falls to the unchanged streaming routes.
+
+| state | per call (2000 x 8 KiB) |
+|---|---|
+| baseline (two dispatches) | 25.1 us |
+| one dispatch, this branch | see bench output in this run |
