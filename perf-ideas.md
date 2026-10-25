@@ -423,3 +423,17 @@ Scope note: the win shows in walks over re-inclusion-bearing filters -- the diff
 carries no re-inclusions, so its counts are unchanged by construction. Quantifying it
 needs a walk bench over the real_filter fixture's kind of view; the settle consult itself
 is the walk-level lever the suffix pairing and the reach gates pointed at.
+
+### The settle change: what an A/B on the walk bench actually showed
+
+The seventh walk case ("the tree closed but the rewritten file reopened": exclude /tree,
+re-include only the rewritten file) reports 3 directories / 79 verdicts / 1 change at 0.04
+ms -- deterministically. The A/B against the pre-reach build shows PARITY on this case:
+the old consult's depth=0 never over-descended HERE, because the trie walk itself
+localizes -- a branch that is not the re-includer's prefix fails the component walk before
+any reach filter matters. The reach-aware `depth` filter binds one shape deeper: when the
+walk stands below a chain the re-includer terminates in (re-includer dmax == the visited
+depth, siblings' descendants at depth+...), where `entry.depth > depth` now settles what
+`> 0` kept descending into. This tree's depth-4 leaves cannot produce that shape; a
+deeper fixture would. The case stays as a guard on the re-include chain navigation: same
+three counts on both sides of the settle change.
