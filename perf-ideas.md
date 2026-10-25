@@ -157,3 +157,12 @@ files and the rare head/size race fall through to the untouched open-handle flow
 It now reads whole, head and size together, in one dispatch, under the open path's retry;
 streaming and head/size races fall through untouched. Measured on its twin route at
 32.1 -> 15.9 us; a dedicated mutable-store bench can pin this one identically when wanted.
+
+### Resolved publishes: pinned
+
+`resolved_publish_bench.rs` added. 1000 files of 8 KiB, three rounds, publishes asserted:
+
+| state | per call |
+|---|---|
+| baseline `source.open()` + `read_all` (three dispatches) | see run |
+| branch: one dispatch via `read_small_with_retry` | see run |
