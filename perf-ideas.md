@@ -344,3 +344,24 @@ at 16 threads). The next lever is depth-gating the fold:
 Whether the 14 ns/line is branch misprediction on the four-check chain rather than the
 checks themselves is exactly what a profile answers; a `perf`-capable machine decides that
 first.
+
+### The depth gate: semantically sound, bench-arbitrated out
+
+The step-fold depth gate landed and passed the whole battery (799 unit, 20 diff_views,
+identical emitted changes) -- and lost the clock: 1959 ns/step against 1797 baseline
+(1900/1503 with a 25%-pruning engagement threshold), because the bench filters are
+shallow-heavy: unanchored and name rules stay eligible at every depth, so the gate prunes
+almost nothing while paying indirection over `self.lines[idx]`. Reverted.
+
+What survived the experiment:
+- **The design + both fixes are written down.** The merge must snapshot each level
+  (`carried.clone()` per level): the first version's `append` DRAINED every intermediate
+  bucket, leaving only the last level populated -- the "sink 0, everything unexcluded"
+  failure that the exactness suites caught immediately. The proof argument stands: a
+  `min_depth > depth` line is an unconditional no-op, so eligibility-prefiltering is
+  equivalent by construction.
+- **The arbiter that could resurrect it is a real-repository filter fixture.** Game
+  projects' .loreignore files are deep-anchored literal-heavy (Assets/..., bin/...), where
+  mid-depth folds shed most of the run. A bench built from a real 200-line .loreignore,
+  folding deep paths, decides whether the gate returns.
+- The 1797 ns/step baseline stands as the per-node ceiling address for the descend trail.
