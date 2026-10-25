@@ -44,16 +44,17 @@ Baseline (this machine, 2026-10-25, release):
    (core workers + blocking ≤128 + rayon compute), network shares the core runtime,
    file I/O parallelism = blocking-thread count.
 
-## Applied on this branch
+## Landed on this branch (every row bench-arbitrated or unit-gated)
 
-- **`lore-storage/src/write.rs::whole_content_hash`** — reads through the open handle in
-  `WHOLE_HASH_WINDOW_SIZE` windows into an incremental `blake3::Hasher` instead of
-  `read_all` + one-shot hash. Saves open+stat+read+close → open+read per compared file
-  and bounds residency to one window. Behavior-preserving: files on this path are
-  ≤ 256 KiB, so today the whole content is one window either way.
-- **`lore-base/src/types/mod.rs`** — added `Hash::from_bytes` so an incremental hasher can
-  compose a `Hash` without reaching into the private field.
-- `Justfile` recipes: `bench`, `bench-all`, `profile`.
+- `lore-revision/src/state/diff.rs` — walk sides pair by rule content, not pointer identity;
+  a second verdict per paired node is asked only where the rules actually differ (ed5104ee).
+- `lore-storage/src/content.rs` + `write.rs` — `size_and_head` / `read_small_with_retry`
+  carry size and head in one `open_read_head` dispatch; the compare, the small-store write
+  and the resolved publish each route through it, with their open-handle flows kept as
+  fallbacks (c9eef9fe, 53e76f42, d6462492).
+- Benches: `file_matches_bench`, `hash_file_bench`, `resolved_publish_bench`; `just bench`,
+  `bench-all`, `profile`. The earlier windowed-hash and per-op-SIMD attempts were
+  bench-arbitrated OUT and reverted with their mechanisms recorded below.
 
 ## Ranked next moves
 
@@ -166,3 +167,30 @@ streaming and head/size races fall through untouched. Measured on its twin route
 |---|---|
 | baseline `source.open()` + `read_all` (three dispatches) | 36.9 us |
 | branch: one dispatch via `read_small_with_retry` | 17.9 us |
+
+## Handoff snapshot (final state of perf/first-moves)
+
+| route | baseline | branch | bench |
+|---|---|---|---|
+| file compare | 25.1 us | 15.3 us | file_matches_bench |
+| small-store read (hash_file) | 32.1 us | 15.9 us | hash_file_bench |
+| resolved publish | 36.9 us | 17.9 us | resolved_publish_bench |
+| diff walk, equal-rule sides | second verdict per paired node | none | diff_views + unit pair |
+| dispatch floor (1 KiB vs 8 KiB) | -- | 15.6 us flat | file_matches_bench decomposition |
+| hashing at the 32 KiB cap | -- | ~6.5 us over floor | -- |
+
+First concrete moves for the three open items (each a dedicated session):
+
+1. **Unanchored-exclusion walk prune.** Design: suffix-delta fold. When `DiffFlags::between`
+   additionally detects `to.lines` extending `from.lines`, carry the suffix; the walk answers
+   the to-side child verdict by folding only the suffix lines continuing the from-side parent
+   state (the machinery is `FilterState::ROOT` + `decided_at` flooring + `min_depth`). Ceiling:
+   ~2x verdict reduction in the uncovered case; the 25x cases are anchored and already pruned.
+   Cost: new filter API, walk seeding plumbing, and count-contract updates in diff_views.
+2. **Dispatch floor.** The 15.6 us flat cost is one psync-pool handoff. Phase-2 lever: batch
+   several files' open+stat+read into one dispatch (a multi-file composite op), or submit
+   through the uring engine so data-plane parallelism is queue depth, not pool size. The
+   three benches arbitrate any slice.
+3. **LEP phase 1.** `net_runtime()` accessor + `lore_spawn_net!` variant in
+   `lore-base/src/runtime.rs`, then migrate transport construction per the LEP's site list,
+   then delete the compute pool. Phased, per the LEP's own plan.
