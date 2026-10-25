@@ -125,8 +125,53 @@ impl<'a> ContentSource<'a> {
         let (file, metadata, head) = lore_io::IoDriver::global()
             .open_read_head(path, &lore_io::OpenOptions::new().read(true), head_len)
             .await?;
+        if !metadata.is_file() {
+            return Err(std::io::Error::from(std::io::ErrorKind::InvalidInput));
+        }
         drop(file);
         Ok((metadata.len(), head))
+    }
+
+
+    /// The content's size and its bytes, whole at or under `head_len`, one dispatch with the
+    /// open path's retry: the store write path calls it, and a reader holding the file open
+    /// on Windows must not turn a store into a fault.
+    pub async fn read_small_with_retry(
+        &self,
+        head_len: usize,
+    ) -> Result<(u64, Bytes), StorageError> {
+        if matches!(self, ContentSource::Virtual(_)) {
+            return Err(StorageError::from(InvalidArguments {
+                reason: format!("read: {self}: virtual content is not read here"),
+            }));
+        }
+        let path = self.host_path();
+        let mut retry = crate::retry(10, 10_000, 10);
+        loop {
+            match self.size_and_head(head_len).await {
+                Ok(opened) => return Ok(opened),
+                Err(err)
+                    if matches!(
+                        err.kind(),
+                        std::io::ErrorKind::NotFound
+                            | std::io::ErrorKind::InvalidInput
+                            | std::io::ErrorKind::Unsupported
+                    ) =>
+                {
+                    return Err(StorageError::from(InvalidArguments {
+                        reason: format!("read file: {self}: {err}"),
+                    }));
+                }
+                Err(err) => {
+                    if !retry.wait().await {
+                        return Err(StorageError::internal_with_context(
+                            err,
+                            &format!("read file: {self}"),
+                        ));
+                    }
+                }
+            }
+        }
     }
 
     /// The whole content at once, naming it rather than opening it, which reads it in one
