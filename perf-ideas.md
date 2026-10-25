@@ -214,3 +214,24 @@ First concrete moves for the three open items (each a dedicated session):
 3. **LEP phase 1.** `net_runtime()` accessor + `lore_spawn_net!` variant in
    `lore-base/src/runtime.rs`, then migrate transport construction per the LEP's site list,
    then delete the compute pool. Phased, per the LEP's own plan.
+
+## Pairing read, second pass (atom 2b scoping)
+
+`FilterStates` is slots (ignore/view), not sides; each SIDE walks with its own
+`DiffStates { from: FilterStates, to: FilterStates }` in `DiffCursor`. The to-side ask
+(`to_subtree_verdict`, diff.rs ~1073 and ~1282) resumes `states.to` with the to filter, and
+`from_node_states: FilterStates` is a threaded parameter of the pairing functions (bindings
+at diff.rs 615, parameters at 689 and 961) -- the from-side child states are in scope where
+the slice needs them. Plumbing shape: when `states.from == states.to` slot-wise and the
+filters pair by suffix, the to-side child view state is
+`step_suffix(from_child.view, base = from_len, suffix)` and the ignore slot carries verbatim
+(`view_suffix` guards ignore-list equality, so both sides fold the identical ignore list).
+
+The hard part, now named precisely: the verdict is not only the state. `child_exclude_reason`
+-> `descend_reason` consults the reinclude machinery (a `!rule` beneath forces descent into
+an excluded subtree). Under the suffix split, "could anything below be re-included" is an OR
+across (a) the shared run beyond the from-side `decided_at` and (b) the suffix lines -- and
+that split is where silent over-pruning would hide. Next atom: re-derive the to-side descend
+reason from the reinclude indexes over (shared-run tail, suffix), prove it against
+`descend_reason` unit-wise the way `folding_a_suffix_composes` proved the fold, and only
+then thread it into `to_subtree_verdict` and reconcile `diff_views`' ask counts.
