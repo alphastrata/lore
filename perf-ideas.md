@@ -385,3 +385,26 @@ one-component glob cannot equal a k-component path string); unbounded rules (ext
 components?), build the depth-max index with the same per-level snapshot shape, prove by
 the unit/exactness pair, and arbitrate on `real_filter_bench` -- where the anchored-rule
 majority should shed real mass at deep folds.
+
+## The depth-max gate: the first fold win the real-fixture arbiter approved
+
+`8ac850d3` -- the fold now carries a **reach** snapshot per depth: every line runs until its
+own `depth_max` passes the level (literal path rules drop out once the fold's depth passes
+their component count -- a k-component literal cannot equal a deeper path string), and
+everything unbounded (name rules, wildcards, globstars) is carried to the last level. The
+`literal` flag is the soundness boundary: exact string equality makes the arity argument
+airtight. A 20%-shed engagement threshold keeps shallow-reaching filters on the sequential
+fold. Snapshot semantics throughout -- the depth-gate merge's drain bug taught that the
+hard way.
+
+| bench | baseline | with reach gates |
+|---|---|---|
+| real filter, whole path | 1.116 us | 931-1003 ns (-10..-17%) |
+| real filter, warm repeats | 1.059 us | 883-943 ns (-11..-17%) |
+| file compare (whole walk cost, unchanged fixture) | -- | sinks identical: 10000/20000 |
+| synthetic ns/step (shallow-heavy fixture) | 1797 | ~1980 (+10%, recorded cost) |
+
+The `literal` flag carries the whole proof; the open question that remains is the walk's
+other slot -- if profiling later shows the descend half of the reach trail still
+bound, the same reach argument may extend to `descend_reason`'s subtree settles (a
+rule's own reach bounds where it can settle a subtree at all).
