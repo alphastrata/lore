@@ -187,6 +187,26 @@ First concrete moves for the three open items (each a dedicated session):
    state (the machinery is `FilterState::ROOT` + `decided_at` flooring + `min_depth`). Ceiling:
    ~2x verdict reduction in the uncovered case; the 25x cases are anchored and already pruned.
    Cost: new filter API, walk seeding plumbing, and count-contract updates in diff_views.
+
+   **Progress: atom 1 landed (`3eb60bc9`).** `Filter::view_suffix(prefix)` detects the
+   extension slot-wise (ignore lines equal; prefix's view lines an exact run; returns the
+   suffix lines), unit-tested four ways beside the `between` pair. The detection's tests
+   caught two draft bugs before any walk plumbing existed -- the prefix span must cover
+   `prefix`'s full run, and an empty rule list is a prefix of everything.
+
+   **Atom 2, machinery map.** The fold chain is `child_excludes_tree` ->
+   `child_exclude_reason` -> `FilterStates::child_exclusion_states` (diff.rs 1338) ->
+   `child_exclusion_state` (filter.rs 1097) -> `step` (1037), flooring at `decided_at` and
+   gated by `min_depth`, with `FilterStates` carrying one state per side. The to-side ask
+   under TwoViews (`to_subtree_verdict`, called at ~1073 and ~1282) resumes the to-side
+   fold from `parent`. The slice: when the two filters pair by suffix, seed the to-side
+   child fold from the FROM-side child state and fold only the suffix lines (suffix line
+   indices exceed any `decided_at` floor the from side can set, so they are never floored;
+   from-side lines resume exactly as the from ask ran them). Requires reading
+   `FilterStates`/`step` bodies (~150 lines), threading `view_suffix`'s output from the
+   seeding into `to_subtree_verdict`, and reconciling the ask counts `diff_views` asserts
+   -- the to-side asks halve for suffix-paired configurations, exactly as they did when
+   `between`'s pointer comparison retired.
 2. **Dispatch floor.** The 15.6 us flat cost is one psync-pool handoff. Phase-2 lever: batch
    several files' open+stat+read into one dispatch (a multi-file composite op), or submit
    through the uring engine so data-plane parallelism is queue depth, not pool size. The
