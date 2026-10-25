@@ -98,9 +98,16 @@ fn one_filter_on_both_sides_is_not_two_views() {
 }
 
 #[test]
-fn two_filters_are_two_views_even_where_their_rules_agree() {
+fn two_filters_with_equal_rules_are_one_view_however_they_are_held() {
     let from = Arc::new(Filter::default());
     let to = Arc::new(Filter::default());
+    assert_eq!(DiffFlags::between(&from, &to), DiffFlags::empty());
+}
+
+#[test]
+fn two_filters_whose_rules_differ_are_two_views() {
+    let from = Arc::new(Filter::default());
+    let to = Arc::new(excluding("x"));
     assert_eq!(DiffFlags::between(&from, &to), DiffFlags::TwoViews);
 }
 

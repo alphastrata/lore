@@ -67,7 +67,7 @@ pub struct FilterInstance {
 ///
 /// `directory` is a predicate on the node, not on the path text, so no glob can
 /// express it at all.
-#[derive(Default, Clone, Debug)]
+#[derive(Default, Clone, Debug, PartialEq)]
 pub struct FilterLine {
     glob: String,
     negated: bool,

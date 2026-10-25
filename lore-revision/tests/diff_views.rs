@@ -734,10 +734,14 @@ mod tests {
             .expect("Test task failed");
     }
 
-    /// A paired file costs one verdict under one view and two under two, which is the whole of
-    /// what the to-side verdict is gated for: a paired file is the commonest node a walk sees.
+    /// Views whose rules agree cost one verdict per paired file, however they are held: pairing
+    /// sides compares rule content, not pointer identity, so separately built filters answering
+    /// the same rules are one filter as far as the walk is concerned. A second view whose rules
+    /// actually differ still costs a second verdict per paired file -- the counts that hold for
+    /// one are asserted by `views_that_cover_a_content_equal_subtree_do_not_enter_it`, where the
+    /// to side carries a rule the from side does not.
     #[tokio::test]
-    async fn a_paired_file_costs_a_second_verdict_under_two_views() {
+    async fn views_with_equal_rules_cost_no_second_verdict_however_they_are_held() {
         let (immutable_store, mutable_store, execution) =
             test_store_create().await.expect("Failed to create stores");
 
@@ -760,8 +764,8 @@ mod tests {
                 );
                 assert_eq!(
                     two.filter_queries.load(Ordering::Relaxed),
-                    4,
-                    "a second view is a second verdict per paired file"
+                    2,
+                    "views whose rules agree answer once, however they are held; the pointer                      inequality that asked each file twice for equal rules is retired"
                 );
             }))
             .await

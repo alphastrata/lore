@@ -136,13 +136,19 @@ bitflags! {
 impl DiffFlags {
     /// The flags for a walk whose sides filter through `from` and `to`.
     ///
-    /// [`Self::TwoViews`] is pointer inequality, which over-approximates: two
-    /// filters held separately report as differing even where their rules agree,
-    /// and a walk then does work it could have skipped rather than skipping work
-    /// it had to do.
+    /// [`Self::TwoViews`] is pointer inequality folded with a comparison of the
+    /// rule lines, so filters held separately report as differing only where
+    /// their rules actually differ. Pointer inequality alone over-approximated,
+    /// and a walk then did work it could have skipped rather than skipping work
+    /// it had to do. A filter's answers are a function of its two rule lists --
+    /// the ancestor memo is a cache of folds the same lists have already
+    /// produced -- so equality of the lists settles that neither side's verdict
+    /// can answer for the other's question, and no question exists.
     #[lore_macro::test_pub]
     fn between(from: &Arc<Filter>, to: &Arc<Filter>) -> Self {
-        if Arc::ptr_eq(from, to) {
+        if Arc::ptr_eq(from, to)
+            || (from.ignore.lines == to.ignore.lines && from.view.lines == to.view.lines)
+        {
             Self::empty()
         } else {
             Self::TwoViews
