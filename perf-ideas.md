@@ -318,3 +318,29 @@ degradation at 32 -- a per-node work ceiling, not a parallelism failure. ~2.8 us
 one thread through a 128-line filter is where the next lever lives: per-node step cost
 (min_depth gating, literal compares, path-buffer arithmetic), and it is only reachable
 under a profile. The probes stay in the bench; the trail continues on a machine with perf.
+
+### The descend trail bottoms out in `step`: 1797 ns/step, ~14 ns/line, and a designed gate
+
+`filter_walk_bench` already measures the wall the descend probes converged on:
+`child_exclusion_state` costs 1797 ns/step over the 128-line bench filter -- ~14 ns per
+line -- which IS the ~2.8 us/node ceiling the parallel descend plateaus at (~2.7 M nodes/s
+at 16 threads). The next lever is depth-gating the fold:
+
+- **Design.** `FilterInstance` maintains an eligibility index by depth -- for each depth
+  level, the ascending line indices whose `min_depth <= level` -- maintained at the
+  `add_*` mutation points (filter loads are once-per-start; O(lines x levels) rebuilds are
+  nothing). `step_lines` iterates the eligible indices from a binary-searched floor.
+- **The proof argument.** `line.min_depth > depth` continues BEFORE any state change in
+  today's fold, so ineligible lines are unconditional no-ops -- removing them from
+  iteration is equivalent by construction, the same shape the suffix fold proved. The
+  negated/directory/pruned checks stay in-line.
+- **Caveats, both documented in the benches' own docs.** The instances' footprint is
+  load-bearing (a field costs percent of whole-path queries) -- measure with the
+  dead-field control the filter bench prescribes; and the index must be instance-private
+  (the `with_view` memo warning covers why count-keyed shared caches are unsound across
+  equal-length instances). Arbitration: `filter_walk`'s ns/step, `filter_descend`, and the
+  whole-path `filter` benches.
+
+Whether the 14 ns/line is branch misprediction on the four-check chain rather than the
+checks themselves is exactly what a profile answers; a `perf`-capable machine decides that
+first.
