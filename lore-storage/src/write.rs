@@ -2022,40 +2022,19 @@ impl<'a> ContentHashMemo<'a> {
     /// stored as a single fragment. Computed at most once per [`ContentHashes`], and `None` where
     /// the content could not be read.
     ///
-    /// The content is read through a handle one window at a time and hashed incrementally, so
-    /// nothing beyond one window is resident, and the budget for that window is the fragment
-    /// limiter, sized to the smaller of the content and the window. Reading through the open
-    /// handle rather than naming the content again also drops the stat the whole-file read
-    /// dispatch pays, which is a per-file tax on a compare that runs for every file a
-    /// status, stage, or commit scan visits.
+    /// The whole content is resident while it is hashed, so the budget for it comes from the
+    /// fragment limiter that bounds every other buffer of a fragment's size.
     async fn whole_content_hash(&self, file_size: usize) -> Option<Hash> {
         if let Some(hash) = self.established.whole.get() {
             return Some(*hash);
         }
 
-        let _memory_permit = crate::concurrency::acquire_fragment_memory_permit(
-            file_size.min(WHOLE_HASH_WINDOW_SIZE),
-        )
-        .await;
-        let (handle, _size) = self.source.open().await.ok()?;
-
-        let mut hasher = blake3::Hasher::new();
-        let mut offset = 0u64;
-        while offset < file_size as u64 {
-            let want = ((file_size as u64) - offset).min(WHOLE_HASH_WINDOW_SIZE as u64) as usize;
-            // SAFETY: the read below fills the buffer before anything reads a byte of it.
-            let buffer = unsafe { lore_io::uninit_buffer(want) };
-            let window = handle
-                .read_window(crate::content::WindowRead::new(buffer, 0, want), offset)
-                .await
-                .ok()?;
-            hasher.update(&window);
-            offset += want as u64;
-        }
-
-        Some(*self.established
-            .whole
-            .get_or_init(|| Hash::from_bytes(*hasher.finalize().as_bytes())))
+        let hash = {
+            let _memory_permit =
+                crate::concurrency::acquire_fragment_memory_permit(file_size).await;
+            Hash::hash_buffer(&self.source.read_all().await.ok()?)
+        };
+        Some(*self.established.whole.get_or_init(|| hash))
     }
 
     /// How the whole content compares to `previous`, which is what answers for content stored as
@@ -2171,12 +2150,6 @@ pub fn hash_file(
 /// stall.
 #[lore_macro::test_pub]
 const HASH_WINDOW_SIZE: usize = 2 * crate::compress::FRAGMENT_SIZE_THRESHOLD;
-
-/// The window the whole-content compare reads through, sized past every content the path can
-/// answer for -- the whole-content compare only runs at or under [`FRAGMENT_SIZE_THRESHOLD`] --
-/// so today the content is one window. The loop stands for larger content should that threshold
-/// move, and bounds resident memory to the window either way.
-const WHOLE_HASH_WINDOW_SIZE: usize = 1024 * 1024;
 
 /// Bytes of the file that are resident, and where they start in it.
 struct HashWindow {

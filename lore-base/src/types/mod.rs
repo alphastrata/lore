@@ -743,11 +743,6 @@ impl Hash {
         }
     }
 
-    /// Composes a hash from its raw 32 bytes, which is what an incremental hash finalizes to.
-    pub fn from_bytes(bytes: [u8; 32]) -> Self {
-        Hash { data: bytes }
-    }
-
     pub fn is_zero(&self) -> bool {
         self.data == [0; 32]
     }
