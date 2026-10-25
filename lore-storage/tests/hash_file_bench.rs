@@ -16,7 +16,6 @@ use lore_storage::local::immutable_store::ImmutableStoreSettings;
 use lore_storage::local::immutable_store::LocalImmutableStore;
 use lore_storage::write::hash_file;
 use lore_storage::Partition;
-use lore_storage::Context;
 use lore_storage::ImmutableStore;
 
 #[tokio::test(flavor = "multi_thread")]
