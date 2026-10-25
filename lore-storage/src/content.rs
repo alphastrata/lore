@@ -145,7 +145,6 @@ impl<'a> ContentSource<'a> {
                 reason: format!("read: {self}: virtual content is not read here"),
             }));
         }
-        let path = self.host_path();
         let mut retry = crate::retry(10, 10_000, 10);
         loop {
             match self.size_and_head(head_len).await {
