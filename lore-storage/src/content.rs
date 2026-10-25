@@ -110,6 +110,25 @@ impl<'a> ContentSource<'a> {
             })
     }
 
+
+    /// The content's size and up to `head_len` bytes of it, one dispatch: open, stat, read.
+    ///
+    /// A comparison needs both before it knows what it needs: the size routes the compare,
+    /// the head answers it for content at or under the minimum cut. When the file fits in
+    /// the head the caller is done after the one dispatch. Virtual content is Unsupported:
+    /// this crate does not read it here.
+    pub async fn size_and_head(&self, head_len: usize) -> std::io::Result<(u64, Bytes)> {
+        if matches!(self, ContentSource::Virtual(_)) {
+            return Err(std::io::Error::from(std::io::ErrorKind::Unsupported));
+        }
+        let path = self.host_path();
+        let (file, metadata, head) = lore_io::IoDriver::global()
+            .open_read_head(path, &lore_io::OpenOptions::new().read(true), head_len)
+            .await?;
+        drop(file);
+        Ok((metadata.len(), head))
+    }
+
     /// The whole content at once, naming it rather than opening it, which reads it in one
     /// dispatch. A caller already holding a handle reads through [`ContentHandle::read_all`]
     /// instead of naming the content twice.

@@ -1821,11 +1821,25 @@ pub async fn file_matches(
         .await
         .forward::<StorageError>("permit failed")?;
 
-    let content = ContentHashMemo::new(source, established);
-    let Ok(file_size) = source.size().await else {
+    // One dispatch stands for the two the compare used to pay: the size that routes it,
+    // and the head that answers it for content at or under the minimum cut.
+    let head = source.size_and_head(FILE_MATCHES_HEAD).await;
+    if let ContentSource::Virtual(VirtualContent::Immutable { address, .. }) = source {
+        let Ok(file_size) = source.size().await else {
+            return Ok(FileMatch::Unreadable);
+        };
+        let _ = file_size;
+        return Ok(if address.hash == previous.hash {
+            FileMatch::Match
+        } else {
+            FileMatch::Differs
+        });
+    }
+    let Ok((file_size, head)) = head else {
         return Ok(FileMatch::Unreadable);
     };
     let file_size = file_size as usize;
+    let content = ContentHashMemo::new(source, established, Some(head));
 
     if let Some(settled) = established.decides(
         previous,
@@ -1835,13 +1849,6 @@ pub async fn file_matches(
         return Ok(settled);
     }
 
-    if let ContentSource::Virtual(VirtualContent::Immutable { address, .. }) = source {
-        return Ok(if address.hash == previous.hash {
-            FileMatch::Match
-        } else {
-            FileMatch::Differs
-        });
-    }
 
     if file_size <= crate::concurrency::FRAGMENT_SIZE_MINIMUM
         || (file_size <= crate::compress::FRAGMENT_SIZE_THRESHOLD
@@ -2008,13 +2015,20 @@ impl ContentHashes {
 struct ContentHashMemo<'a> {
     source: &'a ContentSource<'a>,
     established: &'a ContentHashes,
+    /// The opening dispatch's head, whole for content the whole compare answers for.
+    head: Option<Bytes>,
 }
 
 impl<'a> ContentHashMemo<'a> {
-    fn new(source: &'a ContentSource<'a>, established: &'a ContentHashes) -> Self {
+    fn new(
+        source: &'a ContentSource<'a>,
+        established: &'a ContentHashes,
+        head: Option<Bytes>,
+    ) -> Self {
         Self {
             source,
             established,
+            head,
         }
     }
 
@@ -2029,6 +2043,14 @@ impl<'a> ContentHashMemo<'a> {
             return Some(*hash);
         }
 
+        if let Some(head) = self.head.as_ref().filter(|head| head.len() == file_size) {
+            let hash = {
+                let _memory_permit =
+                    crate::concurrency::acquire_fragment_memory_permit(file_size).await;
+                Hash::hash_buffer(head)
+            };
+            return Some(*self.established.whole.get_or_init(|| hash));
+        }
         let hash = {
             let _memory_permit =
                 crate::concurrency::acquire_fragment_memory_permit(file_size).await;
