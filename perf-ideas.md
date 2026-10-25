@@ -129,3 +129,16 @@ directly; anything larger falls to the unchanged streaming routes.
 |---|---|
 | baseline (two dispatches) | 25.1 us |
 | one dispatch, this branch | see bench output in this run |
+
+### Decomposition (branch committed): dispatch vs hash, three sizes
+
+| size | per call |
+|---|---|
+| 1 KiB | see run |
+| 8 KiB | see run |
+| 32 KiB (the cap) | see run |
+
+The 1 KiB row is the dispatch floor: one pool handoff plus permits and plumbing. The
+difference to the 32 KiB row is what the compare's hashing of the head actually costs. What
+remains below the floor is the LEP phase-2 driver work: queue-depth submission instead of a
+per-op pool handoff.
