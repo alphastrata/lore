@@ -359,6 +359,17 @@ fn concurrent(
 #[ignore = "benchmark: run on demand with --ignored"]
 fn descend_large_tree_in_parallel() {
     let nodes = tree(12 * scale(), 4 * scale());
+    // The unit split is a knob the wall may hide behind: splitting higher spreads the work
+    // over more, smaller units, which starves fewer threads and taxes the counter more.
+    let small = units(&nodes, 2);
+    println!("tree split at depth 2: {} units", small.len());
+    for threads in [4usize, 16, 32] {
+        let (threaded, threaded_time) =
+            concurrent(threads, ROUNDS, &nodes, &small, FilterMode::Full, true, false);
+        let threaded_rate = (threaded.queries * ROUNDS) as f64 / threaded_time.as_secs_f64() / 1e6;
+        println!("  depth 2, {threads:>2} threads: threaded {threaded_rate:>6.2} M nodes/s");
+    }
+
     let units = units(&nodes, 3);
     println!(
         "tree: {} nodes, split into {} parallel work units",

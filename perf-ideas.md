@@ -301,3 +301,20 @@ below 16, and the work is only ~102 units of granularity, consumed by an atomic 
 Next suspects: unit granularity (fewer, larger units or work-stealing), the node-structure
 read pattern, and hyperthread behaviour at 32. The probe stays in the bench for whoever
 takes that up.
+
+### Descend scaling: starvation falsified too -- the wall is per-node work
+
+The unit-split knob ran: 49 smaller units (depth-2 split) against the 102-unit default:
+
+| threads | 102 units (d3) | 49 units (d2) |
+|---|---|---|
+| 4 | 1.34 M nodes/s | 1.14 |
+| 16 | 2.69 | 1.63 |
+| 32 | 2.36 | 1.95 |
+
+Smaller units are worse everywhere, so the wall is not starvation; the memo probe already
+ruled out contention. Both splits plateau near 2.7 M nodes/s at 16 threads with HT
+degradation at 32 -- a per-node work ceiling, not a parallelism failure. ~2.8 us/node at
+one thread through a 128-line filter is where the next lever lives: per-node step cost
+(min_depth gating, literal compares, path-buffer arithmetic), and it is only reachable
+under a profile. The probes stay in the bench; the trail continues on a machine with perf.
