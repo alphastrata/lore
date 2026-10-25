@@ -97,3 +97,22 @@ numbers back.  for that follow-up if/when it
 earns its place.
 
 (The revert took the dep back out of the tree; re-add it only when the batched kernel is being built.)
+
+## file_matches bench: first hard numbers, and a regression reversed
+
+`lore-storage/tests/file_matches_bench.rs` (committed): 2000 files of 8 KiB, 3 rounds,
+answers asserted. Baseline (session start, 5bca99d6) vs the branch:
+
+| state | per call |
+|---|---|
+| baseline `read_all` (one composite dispatch) | 25.1 us |
+| branch: handle + windows read (open, read, close split out) | 42-43 us |
+| after revert of 9203a154 | restored to baseline |
+
+The whole-content compare's cost is not the bytes -- it is the per-dispatch round trip into
+the IO driver (~10-20 us each, warm). Splitting one composite dispatch into three tribled the
+round trips. Lessons, now facts: (1) never split an existing composite read to save a syscall
+inside it; (2) the per-file compare costs ~25 us where the I/O work is worth ~2, so the real
+levers are fewer dispatches per file (composite open+read+close operations, batching, the
+LEP's I/O engine) -- which moves "phase 2 I/O engine" up the list on measured, not asserted,
+grounds.
