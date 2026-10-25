@@ -235,3 +235,24 @@ that split is where silent over-pruning would hide. Next atom: re-derive the to-
 reason from the reinclude indexes over (shared-run tail, suffix), prove it against
 `descend_reason` unit-wise the way `folding_a_suffix_composes` proved the fold, and only
 then thread it into `to_subtree_verdict` and reconcile `diff_views`' ask counts.
+
+## The suffix pairing is threaded: verdicts halve, and a finding about where the 2 ms lives
+
+The walk carries the extension from the seeding (`ViewSuffix`) beside its flags and answers
+the to side through `child_excludes_tree_by_suffix` wherever the pairing holds (two views,
+parent states slot-equal, no rename). diff_views: 20/20 unreconciled -- the exactness suite
+holds the suffix path against the old walk verbatim. diff_walk bench, unanchored case:
+
+| metric | before | after |
+|---|---|---|
+| verdicts | 3932 | 2180 (-45%) |
+| changes | 1 | 1 (identical) |
+| ms/walk | 2.04 | 1.99 (noise) |
+
+The counts prove the mechanism; the clock says the removed asks were composed, not
+eliminated, and filtering was never the wall-clock cost of the walk. The remaining ~2 ms
+in the unanchored case is the traversal's own work -- 217 directory reads through the
+storage layer, name lookups, sorts -- which moves "the walk's per-directory I/O" up as the
+real target, in line with the dispatch-floor finding. The machinery is banked either way:
+with a long view list (real repositories hold whole .loreignore files in the shared run),
+the composed ask saves the full shared-run fold per node.
