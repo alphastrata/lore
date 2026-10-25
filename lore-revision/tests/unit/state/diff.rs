@@ -14,6 +14,7 @@ use lore_revision::change;
 use lore_revision::change::NodeChangeState;
 use lore_revision::filter::Filter;
 use lore_revision::filter::FilterMode;
+use lore_revision::filter::FilterState;
 use lore_revision::filter::FilterStates;
 use lore_revision::node::Node;
 use lore_revision::node::NodeFlags;
@@ -544,4 +545,55 @@ fn the_view_suffix_is_the_lines_a_view_gains() {
 
     let suffix = extended.view_suffix(&extended).expect("equal filters compare");
     assert_eq!(suffix.len(), 0, "an equal filter extends with nothing");
+}
+
+/// Folding only an extension over the states the shared past left is the whole list's
+/// answer, by composition -- the license the walk's suffix pairing rides on. The cases
+/// cover a re-inclusion landing on an excluded shared past, an exclusion landing on an
+/// included one, directory-only rules met by files, depth floors, and paths the fold
+/// declines.
+#[test]
+fn folding_a_suffix_composes_to_the_whole_lists_answer() {
+    let base = excluding("tree/nested");
+    let mut whole = Filter::default();
+    whole.view = base.view.clone();
+    whole
+        .view
+        .add_exclusion("!/tree/nested/keep")
+        .expect("re-inclusion rule");
+    whole.view.add_exclusion("/build/").expect("directory rule");
+    let base_len = base.view.lines.len();
+    let suffix = whole.view.lines[base_len..].to_vec();
+    let whole = Arc::new(whole);
+    let base = Arc::new(base);
+
+    for (path, is_directory) in [
+        ("/tree/nested/keep", false),
+        ("/tree/nested/keep", true),
+        ("/tree/nested/other", false),
+        ("/build", true),
+        ("/build", false),
+    ] {
+        let path = RelativePath::new_from_initial_path(path).expect("valid path");
+
+        let whole_state = whole.view.child_exclusion_state(FilterState::ROOT, &path, is_directory);
+        let base_state = base.view.child_exclusion_state(FilterState::ROOT, &path, is_directory);
+        let composed =
+            base.view
+                .child_state_by_suffix(base_state, base_len, &suffix, &path, is_directory);
+
+        assert_eq!(
+            whole_state, composed,
+            "folding the suffix alone composes for {path} (dir: {is_directory})"
+        );
+    }
+
+    let root = RelativePath::new_from_initial_path(".").expect("valid path");
+    let base_state = base.view.child_exclusion_state(FilterState::ROOT, &root, true);
+    assert_eq!(
+        whole.view.child_exclusion_state(FilterState::ROOT, &root, true),
+        base.view
+            .child_state_by_suffix(base_state, base_len, &suffix, &root, true),
+        "a path the whole fold declines declines in composition too"
+    );
 }

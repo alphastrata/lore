@@ -1047,14 +1047,34 @@ impl FilterInstance {
         } else {
             0
         };
+        self.step_lines(parent, &self.lines, 0, floor, match_path, match_name, is_directory, depth)
+    }
+
+    /// [`step`](Self::step) over `lines` standing in for the run of lines that starts
+    /// `base` lines deep in this instance's list, folding from `floor` lines into the
+    /// slice. `decided_at` reports the absolute line an answer was decided at, so a state
+    /// folded through one slice composes with a fold through another: the floor is
+    /// absolute where the slice is the list's own tail, and starts at the slice where the
+    /// slice is a suffix appended past it.
+    fn step_lines(
+        &self,
+        parent: FilterState,
+        lines: &[FilterLine],
+        base: usize,
+        floor: usize,
+        match_path: &str,
+        match_name: &str,
+        is_directory: bool,
+        depth: u32,
+    ) -> FilterState {
         debug_assert!(
-            floor <= self.lines.len(),
-            "a state from another filter: decided_at {floor} exceeds {} lines",
-            self.lines.len()
+            floor <= lines.len(),
+            "a floor from another slice: decided_at {floor} exceeds {} lines",
+            lines.len()
         );
         let pruned = parent.excluded;
         let mut state = parent;
-        for (offset, line) in self.lines[floor..].iter().enumerate() {
+        for (offset, line) in lines[floor..].iter().enumerate() {
             if line.negated != state.excluded {
                 continue;
             }
@@ -1080,11 +1100,68 @@ impl FilterInstance {
             if hit {
                 state = FilterState {
                     excluded: !line.negated,
-                    decided_at: (floor + offset) as u32,
+                    decided_at: (base + floor + offset) as u32,
                 };
             }
         }
         state
+    }
+
+    /// The child states of folding only a suffix of this instance's view lines, where the
+    /// suffix sits `base` lines deep in the full list and the parent state was folded
+    /// through everything before it.
+    ///
+    /// A walk pairing two filters whose view lists extend one another answers the
+    /// extending side by folding the extension alone over the shared past, which is what
+    /// [`view_suffix`](Filter::view_suffix) detects and what this composes. The suffix
+    /// fold starts at the slice -- an absolute floor from the shared past points into a
+    /// list the suffix does not hold, and every suffix line outranks it anyway. A fold
+    /// read back through this answers, by composition, whatever the whole-list fold
+    /// answered; the unit pair under `state::diff` proves the composition.
+    #[lore_macro::test_pub]
+    fn step_suffix(
+        &self,
+        parent: FilterState,
+        base: usize,
+        suffix: &[FilterLine],
+        match_path: &str,
+        match_name: &str,
+        is_directory: bool,
+        depth: u32,
+    ) -> FilterState {
+        self.step_lines(parent, suffix, base, 0, match_path, match_name, is_directory, depth)
+    }
+
+    /// [`child_exclusion_state`](Self::child_exclusion_state) continued over `suffix`,
+    /// which sits `base` lines deep in this instance's list and folds from the slice's
+    /// start: the `parent` state was folded through everything before it.
+    ///
+    /// A whole-list fold floors only where the parent state was excluded, and only at
+    /// lines the state itself decided; a suffix outranks any floor the shared past can
+    /// set, so it never skips into the slice. Paths the whole-list fold declines to fold
+    /// -- empty, and the repository root -- are declined here too.
+    #[lore_macro::test_pub]
+    pub fn child_state_by_suffix(
+        &self,
+        parent: FilterState,
+        base: usize,
+        suffix: &[FilterLine],
+        path: &impl FilterPath,
+        is_directory: bool,
+    ) -> FilterState {
+        if suffix.is_empty() || path.is_empty() || path.as_str() == "." {
+            return parent;
+        }
+        let lowercase = path.as_lowercase_str();
+        self.step_suffix(
+            parent,
+            base,
+            suffix,
+            lowercase,
+            path.name_lowercase(),
+            is_directory,
+            component_count(lowercase),
+        )
     }
 
     /// The exclusion verdict for `path`, given its parent's.
