@@ -1759,6 +1759,37 @@ pub async fn write_resolved_from_file(
         .await
         .forward::<StorageError>("permit failed")?;
     let source = ContentSource::file(path);
+
+    // One dispatch stands for open, stat and read: content at or under one fragment is read
+    // whole here, head and size together, under the open path's retry. Streaming files and
+    // the rare head/size race fall through to the open-handle flow below, unchanged.
+    let (routed_size, routed) = source
+        .read_small_with_retry(crate::compress::FRAGMENT_SIZE_THRESHOLD)
+        .await?;
+    if routed_size == 0 {
+        return retract_resolved_mapping(mutable, partition, key, context, remote_session).await;
+    }
+    if routed_size as usize <= crate::compress::FRAGMENT_SIZE_THRESHOLD
+        && routed.len() == routed_size as usize
+    {
+        let size = routed_size as usize;
+        let read_permit = crate::concurrency::acquire_fragment_memory_permit(size).await;
+        return Ok(
+            write_resolved_content(
+                store,
+                partition,
+                key,
+                context,
+                routed,
+                flags,
+                remote_session.clone(),
+                writes,
+                read_permit,
+            )
+            .await?,
+        );
+    }
+
     let (handle, size) = source.open().await?;
 
     lore_base::lore_trace!(
