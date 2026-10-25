@@ -247,6 +247,18 @@ mod tests {
                         &[&format!("/{}", top(DROPPED))],
                     )
                 };
+                let reopened = || {
+                    let changed = subdirectory(CHANGED, 0);
+                    test_view_context(
+                        &instance,
+                        immutable_store.clone(),
+                        mutable_store.clone(),
+                        &[
+                            &format!("/{TREE}"),
+                            &format!("!/{changed}/file00.bin"),
+                        ],
+                    )
+                };
                 let unanchored = || {
                     test_view_context(
                         &instance,
@@ -273,6 +285,8 @@ mod tests {
                 two_views.report("two views diverging in one subtree");
                 dropped.report("two views, one subtree dropped");
                 no_prune.report("two views, unanchored exclusion");
+                let tree_closed = timed(|| (reopened(), reopened()), &older, &newer).await;
+                tree_closed.report("two views, the tree closed but the rewritten file reopened");
 
                 assert_eq!(
                     one_view.changes, no_prune.changes,
@@ -291,6 +305,16 @@ mod tests {
                 assert!(
                     two_views.entered() < no_prune.entered() / 2,
                     "diverging in one subtree must cost a subtree, not the tree"
+                );
+                assert_eq!(
+                    tree_closed.changes, 1,
+                    "a tree closed whole leaves exactly the reopened file visible, and the walk \
+                     answers for its rewrite and nothing else"
+                );
+                assert!(
+                    tree_closed.entered() < 64,
+                    "the re-includer reaches one chain of the tree, and nothing else makes the \
+                     walk descend past the exclusion"
                 );
                 assert_eq!(
                     dropped.entered(),
