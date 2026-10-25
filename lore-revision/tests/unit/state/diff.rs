@@ -504,3 +504,44 @@ async fn a_walk_holds_each_subtree_once() {
         })
         .await;
 }
+
+/// The view suffix answers the pairing the walk will consume it by: an added rule is a
+/// suffix, a shrunk or re-ordered rule list is not, and an equal filter extends with
+/// nothing.
+#[test]
+fn the_view_suffix_is_the_lines_a_view_gains() {
+    let base = Arc::new(Filter::default());
+    let mut extended = Filter::default();
+    extended
+        .view
+        .add_exclusion("/tree/nested/subtree/deep")
+        .expect("view exclusion");
+    let extended = Arc::new(extended);
+
+    let suffix = extended.view_suffix(&base).expect("an added rule extends");
+    assert_eq!(suffix.len(), 1, "one added line is one suffix line");
+
+    assert!(
+        base.view_suffix(&extended).is_none(),
+        "a shrunk rule list is not a suffix"
+    );
+
+    let mut rooted = Filter::default();
+    rooted
+        .view
+        .add_exclusion("/tree/root")
+        .expect("view exclusion");
+    let mut diverged = Filter::default();
+    diverged
+        .view
+        .add_exclusion("/elsewhere")
+        .expect("view exclusion");
+    let diverged = Arc::new(diverged);
+    assert!(
+        diverged.view_suffix(&rooted).is_none(),
+        "an equal-length rule list is a suffix only where the shared run matches"
+    );
+
+    let suffix = extended.view_suffix(&extended).expect("equal filters compare");
+    assert_eq!(suffix.len(), 0, "an equal filter extends with nothing");
+}

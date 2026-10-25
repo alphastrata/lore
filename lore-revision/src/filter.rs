@@ -1754,3 +1754,28 @@ impl Filter {
         }
     }
 }
+
+impl Filter {
+    /// The view lines by which this filter extends `prefix`, read slot-wise: `prefix`'s
+    /// ignore lines match this one's and `prefix`'s view lines are a prefix of this one's,
+    /// so what remains is exactly what a walk pairing the two needs to fold over the
+    /// shared past. An equal filter extends with nothing.
+    ///
+    /// The compare is the same rule content comparison [`crate::state::DiffFlags::between`]
+    /// pairs sides by, asked one slot at a time. Where the ignore slots differ, or the
+    /// shared lines are not a prefix, `None`: the two views cannot be answered by folding
+    /// a suffix over the from side's inherited state.
+    pub fn view_suffix(&self, prefix: &Filter) -> Option<&[FilterLine]> {
+        if self.ignore.lines != prefix.ignore.lines {
+            return None;
+        }
+        self.view
+            .lines
+            .len()
+            .checked_sub(prefix.view.lines.len())?;
+        // The shared span is `prefix`'s whole run of lines and the suffix starts where it
+        // ends: an equal filter shares all of it and extends with nothing.
+        let shared = &self.view.lines[..prefix.view.lines.len()];
+        (shared == prefix.view.lines).then_some(&self.view.lines[prefix.view.lines.len()..])
+    }
+}
