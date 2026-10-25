@@ -142,3 +142,11 @@ The 1 KiB row is the dispatch floor: one pool handoff plus permits and plumbing.
 difference to the 32 KiB row is what the compare's hashing of the head actually costs. What
 remains below the floor is the LEP phase-2 driver work: queue-depth submission instead of a
 per-op pool handoff.
+
+### Small-store write route: same lesson applied (hash_file bench added)
+
+`write_from_file` (and so `hash_file`, the hash a stage/status scan computes per small file)
+paid open+metadata inside `source.open()` and then `read_all`: three dispatches. Content at
+or under one fragment now reads whole, size and head together, in one dispatch through
+`read_small_with_retry` -- the open path's retry semantics carried over verbatim; streaming
+files and the rare head/size race fall through to the untouched open-handle flow.
